@@ -1,6 +1,5 @@
 name: Build Wazuh Agent Packages
 
-
 on:
   workflow_dispatch:
     inputs:
@@ -13,7 +12,6 @@ on:
         required: true
         default: '34.150.204.150'
 
-
 jobs:
   build-intel:
     runs-on: macos-14
@@ -21,12 +19,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-
       - name: Download official Wazuh Intel pkg
         run: |
           curl -sL -o wazuh-agent-intel.pkg "https://packages.wazuh.com/4.x/macos/wazuh-agent-${{ github.event.inputs.wazuh_version }}-1.intel64.pkg"
           ls -lh wazuh-agent-intel.pkg
-
 
       - name: Create postinstall script
         run: |
@@ -38,3 +34,148 @@ jobs:
           sleep 2
           if [ -f "$OSSEC_CONF" ]; then
             /usr/bin/sed -i '' "s|<address>.*</address>|<address>$MANAGER_IP</address>|g" "$OSSEC_CONF"
+          else
+            mkdir -p /Library/ossec/etc
+            cat > "$OSSEC_CONF" << CONF
+          <ossec_config>
+            <client>
+              <server>
+                <address>$MANAGER_IP</address>
+                <port>1514</port>
+                <protocol>tcp</protocol>
+              </server>
+            </client>
+          </ossec_config>
+          CONF
+          fi
+          /Library/ossec/bin/wazuh-control start 2>/dev/null || true
+          launchctl load /Library/LaunchDaemons/com.wazuh.agent.plist 2>/dev/null || true
+          exit 0
+          POSTINSTALL
+          chmod +x scripts/postinstall
+
+      - name: Build Intel pkg
+        run: |
+          pkgbuild --identifier com.dragonfli.wazuh-agent-v4 --version ${{ github.event.inputs.wazuh_version }} --scripts scripts --nopayload wazuh-dragonfli-intel-wrapper.pkg
+          cat > distribution.xml << 'DIST'
+          <?xml version="1.0" encoding="utf-8"?>
+          <installer-gui-script minSpecVersion="2">
+            <title>CyberWatch Agent Intel</title>
+            <pkg-ref id="com.wazuh.agent"/>
+            <pkg-ref id="com.dragonfli.wazuh-agent-v4"/>
+            <choices-outline>
+              <line choice="default">
+                <line choice="com.wazuh.agent"/>
+                <line choice="com.dragonfli.wazuh-agent-v4"/>
+              </line>
+            </choices-outline>
+            <choice id="default"/>
+            <choice id="com.wazuh.agent" visible="false"><pkg-ref id="com.wazuh.agent"/></choice>
+            <choice id="com.dragonfli.wazuh-agent-v4" visible="false"><pkg-ref id="com.dragonfli.wazuh-agent-v4"/></choice>
+            <pkg-ref id="com.wazuh.agent" version="4.14.3">wazuh-agent-intel.pkg</pkg-ref>
+            <pkg-ref id="com.dragonfli.wazuh-agent-v4" version="4.14.3">wazuh-dragonfli-intel-wrapper.pkg</pkg-ref>
+          </installer-gui-script>
+          DIST
+          productbuild --distribution distribution.xml --package-path . wazuh-dragonfli-intel-v4.pkg
+          ls -lh wazuh-dragonfli-intel-v4.pkg
+
+      - name: Upload Intel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: intel-pkg
+          path: wazuh-dragonfli-intel-v4.pkg
+
+  build-arm:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download official Wazuh ARM pkg
+        run: |
+          curl -sL -o wazuh-agent-arm.pkg "https://packages.wazuh.com/4.x/macos/wazuh-agent-${{ github.event.inputs.wazuh_version }}-1.arm64.pkg"
+          ls -lh wazuh-agent-arm.pkg
+
+      - name: Create postinstall script
+        run: |
+          mkdir -p scripts
+          cat > scripts/postinstall << 'POSTINSTALL'
+          #!/bin/bash
+          MANAGER_IP="${{ github.event.inputs.manager_ip }}"
+          OSSEC_CONF="/Library/ossec/etc/ossec.conf"
+          sleep 2
+          if [ -f "$OSSEC_CONF" ]; then
+            /usr/bin/sed -i '' "s|<address>.*</address>|<address>$MANAGER_IP</address>|g" "$OSSEC_CONF"
+          else
+            mkdir -p /Library/ossec/etc
+            cat > "$OSSEC_CONF" << CONF
+          <ossec_config>
+            <client>
+              <server>
+                <address>$MANAGER_IP</address>
+                <port>1514</port>
+                <protocol>tcp</protocol>
+              </server>
+            </client>
+          </ossec_config>
+          CONF
+          fi
+          /Library/ossec/bin/wazuh-control start 2>/dev/null || true
+          launchctl load /Library/LaunchDaemons/com.wazuh.agent.plist 2>/dev/null || true
+          exit 0
+          POSTINSTALL
+          chmod +x scripts/postinstall
+
+      - name: Build ARM pkg
+        run: |
+          pkgbuild --identifier com.dragonfli.wazuh-agent-v4 --version ${{ github.event.inputs.wazuh_version }} --scripts scripts --nopayload wazuh-dragonfli-arm-wrapper.pkg
+          cat > distribution.xml << 'DIST'
+          <?xml version="1.0" encoding="utf-8"?>
+          <installer-gui-script minSpecVersion="2">
+            <title>CyberWatch Agent Apple Silicon</title>
+            <pkg-ref id="com.wazuh.agent"/>
+            <pkg-ref id="com.dragonfli.wazuh-agent-v4"/>
+            <choices-outline>
+              <line choice="default">
+                <line choice="com.wazuh.agent"/>
+                <line choice="com.dragonfli.wazuh-agent-v4"/>
+              </line>
+            </choices-outline>
+            <choice id="default"/>
+            <choice id="com.wazuh.agent" visible="false"><pkg-ref id="com.wazuh.agent"/></choice>
+            <choice id="com.dragonfli.wazuh-agent-v4" visible="false"><pkg-ref id="com.dragonfli.wazuh-agent-v4"/></choice>
+            <pkg-ref id="com.wazuh.agent" version="4.14.3">wazuh-agent-arm.pkg</pkg-ref>
+            <pkg-ref id="com.dragonfli.wazuh-agent-v4" version="4.14.3">wazuh-dragonfli-arm-wrapper.pkg</pkg-ref>
+          </installer-gui-script>
+          DIST
+          productbuild --distribution distribution.xml --package-path . wazuh-dragonfli-arm64-v4.pkg
+          ls -lh wazuh-dragonfli-arm64-v4.pkg
+
+      - name: Upload ARM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-pkg
+          path: wazuh-dragonfli-arm64-v4.pkg
+
+  release:
+    needs: [build-intel, build-arm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.wazuh_version }}-v4
+          name: "Wazuh Agent ${{ github.event.inputs.wazuh_version }} v4"
+          body: |
+            Wazuh Agent ${{ github.event.inputs.wazuh_version }} with manager ${{ github.event.inputs.manager_ip }} pre-configured.
+            Intel pkg and ARM64 pkg included.
+          files: |
+            intel-pkg/wazuh-dragonfli-intel-v4.pkg
+            arm-pkg/wazuh-dragonfli-arm64-v4.pkg
+          draft: false
+          prerelease: false
